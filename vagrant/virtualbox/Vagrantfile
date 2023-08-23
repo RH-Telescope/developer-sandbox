@@ -1,0 +1,28 @@
+image_name = "generic/rhel8"
+
+Vagrant.configure("2") do |config|
+    config.ssh.insert_key = false
+
+    config.vm.define "telescope" do |telescope|
+        $script = <<-SCRIPT
+        sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo systemctl restart sshd
+        SCRIPT
+        telescope.vm.boot_timeout = 600
+        telescope.vm.box = image_name
+        telescope.vm.network "public_network",
+          use_dhcp_assigned_default_route: true
+        telescope.vm.hostname = "telescope-sandbox"
+        telescope.vm.provider :virtualbox do |vb|
+            vb.name = "telescope-sandbox"
+            vb.memory = 24000
+            vb.cpus = 12
+            vb.customize ['modifyvm', :id, '--nested-hw-virt', 'on']
+        end
+        telescope.vm.provision "shell", inline: $script
+        telescope.vm.provision "file", source: "../../ansible", destination: "/tmp/ansible"
+        telescope.vm.provision "shell", inline: "mkdir /ansible"
+        telescope.vm.provision "shell", inline: "cp -R /tmp/ansible/* /ansible && chown -R vagrant:vagrant /ansible"
+    end
+
+end

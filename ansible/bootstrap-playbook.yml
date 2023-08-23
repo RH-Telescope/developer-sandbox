@@ -1,0 +1,133 @@
+---
+- hosts: telescope-sandbox
+  become: yes
+  tasks:
+  - name: Put SELinux in permissive mode, logging actions that would be blocked.
+    ansible.posix.selinux:
+      policy: targeted
+      state: permissive
+
+  - name: Change file ownership, group and permissions
+    ansible.builtin.file:
+      path: /etc/hosts
+      mode: '0666'
+
+  # Configure appropriate options for the vendor-specific kvm module
+  # in `/etc/modprobe.d/kvm.conf`.  This will result in either:
+  #
+  #      options kvm_intel nested=1
+  #
+  # Or:
+  #
+  #     options kvm_adm nested=1
+  #
+  # (Depending on the processor vendor)
+  - name: configure kvm module
+    copy:
+      dest: /etc/modprobe.d/kvm.conf
+      content: |
+        options kvm_intel nested=1
+    become: true
+
+  # Immediately load the appropriate kvm vendor module.
+  - name: load kvm module [intel]
+    command: modprobe kvm_intel
+    become: true
+
+  # List the appropriate kvm vendor module in
+  # `/etc/modules-load.d/ooo_kvm.conf`.  This will cause the module
+  # to be loaded automatically next time the system boots.
+  - name: arrange for kvm module to load at boot [intel]
+    copy:
+      content: kvm_intel
+      dest: /etc/modules-load.d/ooo_kvm.conf
+    become: true
+
+  - name: "Install initial Packages"
+    ansible.builtin.package: "name={{ item }} state=present"
+    with_items:
+      - curl
+      - wget
+      - python3-pip
+      - sshpass
+      - git
+
+  #- name: Upgrade all packages
+  #  ansible.builtin.yum:
+  #    name: '*'
+  #    state: latest
+
+  - name: create download directory
+    become: no
+    file:
+      state: directory
+      mode: 'u=rwx,go=rx'
+      dest: '~/crc'
+
+  - name: download crc sha256sum
+    become: no
+    get_url:
+      url: 'https://mirror.openshift.com/pub/openshift-v4/clients/crc/latest/crc-linux-amd64.tar.xz.sha256'
+      dest: '~/crc/crc-linux-amd64.tar.xz.sha256'
+      force: no
+      use_proxy: yes
+      validate_certs: yes
+      mode: 'u=rw,go=r'
+
+  - name: read sha256sum
+    become: no
+    slurp:
+      src: '~/crc/crc-linux-amd64.tar.xz.sha256'
+    register: minikube_sha256sum
+
+  - name: download crc
+    become: no
+    get_url:
+      url: 'https://mirror.openshift.com/pub/openshift-v4/clients/crc/latest/crc-linux-amd64.tar.xz'
+      dest: '~/crc/crc-linux-amd64.tar.xz'
+      checksum: 'sha256:{{ minikube_sha256sum.content | b64decode | trim }}'
+      force: no
+      use_proxy: yes
+      validate_certs: yes
+      mode: 'u=rw,go=r'
+
+  - name: Extract crc
+    become: no
+    ansible.builtin.unarchive:
+      src: '~/crc/crc-linux-amd64.tar.xz'
+      dest: '~/crc'
+      extra_opts: [ --strip-components=1]
+
+  - name: Add another bin dir to system-wide $PATH.
+    copy:
+      dest: /etc/profile.d/custom-path.sh
+      content: 'PATH=$PATH:~/crc'
+  
+  - name: crc delete
+    become: no
+    command: ~/crc/crc delete
+    ignore_errors: true
+
+  - name: crc cleanup
+    become: no
+    command: ~/crc/crc cleanup
+    ignore_errors: true
+
+  - name: crc setup(takes some time for image download and uncompress - crc.qcow2 15gb)
+    become: no
+    command: ~/crc/crc setup
+
+  - name: crc start
+    become: no
+    command: ~/crc/crc start -c 6 -m 18000 -d 60 --log-level=debug -p pull-secret.txt
+
+#sudo setenforce 0
+#root@master:~# cat /sys/module/kvm_intel/parameters/nested
+#root@master:~# modprobe -r kvm-intel
+#root@master:~# modprobe kvm-intel nested=1
+#chmod 666 /etc/hosts
+#/etc/modprobe.d/kvm.conf -- options kvm_intel nested=1
+#kernel <4.19 from uname -a check
+#https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_and_managing_virtualization/creating-nested-virtual-machines_configuring-and-managing-virtualization
+# add wartch of ~/.crc/cache/tmp-extract and ~/.crc/crc.log note disk space required not default for crc image
+# cpu impacts getip calls

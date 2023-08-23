@@ -1,0 +1,16 @@
+*~
+*.swp
+*.swo
+values-secret*
+.*.expected.yaml
+pattern-vault.init
+vault.init
+*.vscode
+*.vagrant
+super-linter.log
+/archive
+*.log
+*.vdi
+packer_cache
+pull-secret.txt
+*.iso

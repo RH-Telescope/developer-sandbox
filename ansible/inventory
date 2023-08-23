@@ -1,0 +1,8 @@
+[telescope-sandbox]
+telescope-sandbox ansible_host=192.168.50.8
+
+[telescope-sandbox:vars]
+ansible_user=vagrant
+
+[all]
+telescope-sandbox
